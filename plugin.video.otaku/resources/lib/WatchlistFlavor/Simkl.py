@@ -2,6 +2,9 @@ import json
 import itertools
 import pickle
 import time
+import json
+import itertools
+from resources.lib.ui import control
 
 from resources.lib.ui import control, database
 from resources.lib.WatchlistFlavor.WatchlistFlavorBase import WatchlistFlavorBase
@@ -264,6 +267,68 @@ class SimklWLF(WatchlistFlavorBase):
                 completed[str(dat['show']['ids']['anilist'])] = dat['total_episodes_count']
         with open(control.completed_json, 'w') as file:
             json.dump(completed, file)
+
+        def get_custom_lists(self):
+        """Fetch user's custom lists"""
+        r = self._get_request(f'{self._URL}/users/lists', headers=self.__headers())
+        if r:
+            return json.loads(r)
+        return []
+
+    def get_custom_list_items(self, list_id):
+        """Fetch items from a specific custom list"""
+        r = self._get_request(f'{self._URL}/users/lists/{list_id}/items', headers=self.__headers())
+        if r:
+            return json.loads(r)
+        return []
+
+    def _base_custom_list_view(self, custom_list):
+        """Create a view item for a custom list"""
+        base = {
+            "name": custom_list['name'],
+            "url": f'custom_list/{self._NAME}/{custom_list["id"]}',
+            "image": 'custom_list.png',
+            "info": {"plot": custom_list.get('description', '')}
+        }
+        return self._parse_view(base)
+
+    def watchlist(self):
+        statuses = [
+            ("Next Up", "watching?next_up=true"),
+            ("Currently Watching", "watching"),
+            ("Completed", "completed"),
+            ("On Hold", "hold"),
+            ("Dropped", "dropped"),
+            ("Plan to Watch", "plantowatch"),
+            ("All Anime", "ALL")
+        ]
+        all_results = list(itertools.chain(*map(self._base_watchlist_view, statuses)))
+        
+        # Add custom lists
+        custom_lists = self.get_custom_lists()
+        all_results.extend(map(self._base_custom_list_view, custom_lists))
+        
+        return all_results
+
+    def get_custom_list_status(self, list_id, offset=0, page=1):
+        results = self.get_custom_list_items(list_id)
+        if not results:
+            return []
+        
+        all_results = list(itertools.chain(*map(self._base_watchlist_status_view, results)))
+        
+        # Apply sorting
+        sort_pref = self.__get_sort()
+        if sort_pref == 'anime_title':
+            all_results = sorted(all_results, key=lambda x: x['info']['title'])
+        elif sort_pref == 'list_updated_at':
+            all_results = sorted(all_results, key=lambda x: x['info']['last_watched'] or "0", reverse=True)
+        elif sort_pref == 'user_rating':
+            all_results = sorted(all_results, key=lambda x: x['info']['user_rating'] or 0, reverse=True)
+        elif sort_pref == 'last_added':
+            all_results.reverse()
+        
+        return all_results
 
     def get_all_items(self, status):
         # status values: watching, plantowatch, hold ,completed ,dropped (notinteresting for old api's).
